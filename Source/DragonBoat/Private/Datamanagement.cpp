@@ -9,6 +9,14 @@ ADatamanagement::ADatamanagement()
 	PendingSwapIndexA = -1;
 	PendingSwapIndexB = -1;
 	GameState = EMatch3State::Idle;
+
+	// 士气值系统初始化
+	CurrentMorale = 0;
+	MaxMorale = 100;
+	MoralePerTile = 5;
+	SpecialMoraleBonus = 20;
+	SkillPoints = 0;
+	MaxSkillPoints = 3;
 }
 
 void ADatamanagement::BeginPlay()
@@ -189,6 +197,13 @@ void ADatamanagement::ProcessMatchCheck()
 		// 收集触发的特殊效果
 		TArray<FSpecialEffectData> TriggeredEffects = CollectSpecialEffects(ClearedArray);
 		
+		// 计算并添加士气值
+		int32 MoraleReward = CalculateMoraleReward(ClearedArray.Num(), TriggeredEffects);
+		if (MoraleReward > 0)
+		{
+			AddMorale(MoraleReward);
+		}
+
 		// 清空匹配的方块
 		for (int32 Idx : ClearedArray)
 		{
@@ -198,8 +213,6 @@ void ADatamanagement::ProcessMatchCheck()
 		UE_LOG(LogTemp, Log, TEXT("  -> Triggering OnMatchesCleared with %d special effects"), TriggeredEffects.Num());
 		
 		// [时机3] 通知UI播放消除动画
-		// UI可以根据 TriggeredEffects 判断是否有特殊效果需要表现
-		// 如果 TriggeredEffects 为空，说明没有触发任何特殊效果
 		OnMatchesCleared(ClearedArray, TriggeredEffects);
 	}
 	else
@@ -233,6 +246,10 @@ void ADatamanagement::InitializeGame()
 {
 	SelectedTileIndex = -1;
 	GameState = EMatch3State::Idle;
+
+	// 重置士气值系统
+	CurrentMorale = 0;
+	SkillPoints = 0;
 	
 	int32 TotalTiles = GridSize * GridSize;
 	OrbGrid.Init(ETileColor::Empty, TotalTiles);
@@ -534,5 +551,160 @@ bool ADatamanagement::IsAdjacent(int32 IndexA, int32 IndexB) const
 bool ADatamanagement::IsValidIndex(int32 Index) const
 {
 	return Index >= 0 && Index < OrbGrid.Num();
+}
+
+// ========================================
+// 士气值系统
+// ========================================
+
+void ADatamanagement::AddMorale(int32 Amount)
+{
+	if (Amount <= 0)
+		return;
+
+	// 如果技能点已满，拒绝添加士气值
+	if (SkillPoints >= MaxSkillPoints)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AddMorale: Skill Points are full (%d/%d), cannot add morale!"), SkillPoints, MaxSkillPoints);
+		
+		// 确保士气值为0
+		if (CurrentMorale != 0)
+		{
+			CurrentMorale = 0;
+			OnMoraleChanged(CurrentMorale, MaxMorale, 0);
+		}
+		
+		return;
+	}
+
+	int32 OldMorale = CurrentMorale;
+	CurrentMorale += Amount;
+
+	UE_LOG(LogTemp, Log, TEXT("AddMorale: +%d (Total: %d/%d)"), Amount, CurrentMorale, MaxMorale);
+
+	// 通知UI士气值变化
+	OnMoraleChanged(CurrentMorale, MaxMorale, Amount);
+
+	// 检查是否需要转换为技能点
+	CheckMoraleToSkillPoint();
+}
+
+float ADatamanagement::GetMoraleProgress() const
+{
+	if (MaxMorale <= 0)
+		return 0.0f;
+
+	return FMath::Clamp((float)CurrentMorale / (float)MaxMorale, 0.0f, 1.0f);
+}
+
+bool ADatamanagement::ConsumeSkillPoint(int32 Amount)
+{
+	if (SkillPoints < Amount)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ConsumeSkillPoint: Not enough skill points! (Have: %d, Need: %d)"), SkillPoints, Amount);
+		return false;
+	}
+
+	SkillPoints -= Amount;
+	UE_LOG(LogTemp, Log, TEXT("ConsumeSkillPoint: -%d (Remaining: %d)"), Amount, SkillPoints);
+
+	// 通知UI技能点变化
+	OnSkillPointChanged(SkillPoints, MaxSkillPoints);
+
+	return true;
+}
+
+int32 ADatamanagement::CalculateMoraleReward(int32 TileCount, const TArray<FSpecialEffectData>& TriggeredEffects)
+{
+	// 基础士气值：每个方块贡献固定值
+	int32 TotalMorale = TileCount * MoralePerTile;
+
+	// 特殊格子额外士气值
+	for (const FSpecialEffectData& Effect : TriggeredEffects)
+	{
+		if (Effect.EffectType == ESlotEffectType::MoraleBoost)
+		{
+			int32 BonusMorale = Effect.TriggerIndices.Num() * SpecialMoraleBonus;
+			TotalMorale += BonusMorale;
+			UE_LOG(LogTemp, Log, TEXT("  -> MoraleBoost triggered %d times, bonus: +%d"), 
+				Effect.TriggerIndices.Num(), BonusMorale);
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("  -> Total Morale Reward: %d (Base: %d tiles x %d)"), 
+		TotalMorale, TileCount, MoralePerTile);
+
+	return TotalMorale;
+}
+
+void ADatamanagement::CheckMoraleToSkillPoint()
+{
+	// 士气值满时转换为技能点
+	while (CurrentMorale >= MaxMorale && SkillPoints < MaxSkillPoints)
+	{
+		CurrentMorale -= MaxMorale;
+		SkillPoints++;
+
+		UE_LOG(LogTemp, Log, TEXT("CheckMoraleToSkillPoint: Morale Full! Converted to Skill Point (Total: %d/%d)"), 
+			SkillPoints, MaxSkillPoints);
+
+		// 通知UI技能点变化
+		OnSkillPointChanged(SkillPoints, MaxSkillPoints);
+
+		// 再次通知UI士气值变化（显示重置后的值）
+		OnMoraleChanged(CurrentMorale, MaxMorale, 0);
+		
+		// 如果技能点已满，强制清零士气值
+		if (SkillPoints >= MaxSkillPoints)
+		{
+			CurrentMorale = 0;
+			UE_LOG(LogTemp, Warning, TEXT("CheckMoraleToSkillPoint: Skill Points full! Morale reset to 0"));
+			OnMoraleChanged(CurrentMorale, MaxMorale, 0);
+		}
+	}
+
+	// 确保士气值不超过上限（额外的安全检查）
+	if (CurrentMorale > MaxMorale)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CheckMoraleToSkillPoint: Morale exceeded max! Capping at %d"), MaxMorale);
+		CurrentMorale = MaxMorale;
+		OnMoraleChanged(CurrentMorale, MaxMorale, 0);
+	}
+}
+
+// ========================================
+// 测试/调试函数
+// ========================================
+
+void ADatamanagement::Debug_SetMorale(int32 NewMorale)
+{
+	CurrentMorale = FMath::Clamp(NewMorale, 0, MaxMorale * MaxSkillPoints);
+	UE_LOG(LogTemp, Warning, TEXT("[DEBUG] SetMorale: %d"), CurrentMorale);
+	OnMoraleChanged(CurrentMorale, MaxMorale, 0);
+}
+
+void ADatamanagement::Debug_SetSkillPoints(int32 NewSkillPoints)
+{
+	SkillPoints = FMath::Clamp(NewSkillPoints, 0, MaxSkillPoints);
+	UE_LOG(LogTemp, Warning, TEXT("[DEBUG] SetSkillPoints: %d"), SkillPoints);
+	OnSkillPointChanged(SkillPoints, MaxSkillPoints);
+}
+
+void ADatamanagement::Debug_SimulateMatch(int32 TileCount, bool bIncludeSpecialBonus)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[DEBUG] SimulateMatch: %d tiles, SpecialBonus: %s"), 
+		TileCount, bIncludeSpecialBonus ? TEXT("Yes") : TEXT("No"));
+
+	// 计算士气值
+	int32 MoraleReward = TileCount * MoralePerTile;
+	if (bIncludeSpecialBonus)
+	{
+		MoraleReward += SpecialMoraleBonus;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("  -> Morale Reward: %d"), MoraleReward);
+
+	// 添加士气值
+	AddMorale(MoraleReward);
 }
 

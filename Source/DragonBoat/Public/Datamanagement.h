@@ -130,6 +130,32 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Match3 State")
 	TArray<FFallMove> LastFallMoves;
 
+	// ========== 士气值系统 ==========
+
+	// 当前士气值
+	UPROPERTY(BlueprintReadOnly, Category = "Morale System")
+	int32 CurrentMorale;
+
+	// 士气值上限（满时转换为技能点）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morale System")
+	int32 MaxMorale;
+
+	// 每个消除方块贡献的士气值
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morale System")
+	int32 MoralePerTile;
+
+	// 特殊格子（士气提升）额外的士气值
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morale System")
+	int32 SpecialMoraleBonus;
+
+	// 当前技能点（最多3个）
+	UPROPERTY(BlueprintReadOnly, Category = "Morale System")
+	int32 SkillPoints;
+
+	// 最大技能点数量
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morale System")
+	int32 MaxSkillPoints;
+
 	// ========== 公共接口 ==========
 
 	// 初始化游戏（生成初始棋盘）
@@ -162,6 +188,34 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Match3 Logic")
 	int32 RowColToIndex(int32 Row, int32 Col) const;
 
+	// ========== 士气值系统接口 ==========
+
+	// 添加士气值
+	UFUNCTION(BlueprintCallable, Category = "Morale System")
+	void AddMorale(int32 Amount);
+
+	// 获取当前士气值百分比（0.0-1.0）
+	UFUNCTION(BlueprintPure, Category = "Morale System")
+	float GetMoraleProgress() const;
+
+	// 消耗技能点
+	UFUNCTION(BlueprintCallable, Category = "Morale System")
+	bool ConsumeSkillPoint(int32 Amount = 1);
+
+	// ========== 测试函数（仅用于调试）==========
+
+	// 测试：直接设置士气值
+	UFUNCTION(BlueprintCallable, Category = "Morale System|Debug")
+	void Debug_SetMorale(int32 NewMorale);
+
+	// 测试：直接设置技能点
+	UFUNCTION(BlueprintCallable, Category = "Morale System|Debug")
+	void Debug_SetSkillPoints(int32 NewSkillPoints);
+
+	// 测试：模拟消除N个方块
+	UFUNCTION(BlueprintCallable, Category = "Morale System|Debug")
+	void Debug_SimulateMatch(int32 TileCount, bool bIncludeSpecialBonus = false);
+
 	// ========== UI通知事件 ==========
 
 	// [时机1] 棋盘初始化完成 - UI需要创建所有方块和特殊格子标识
@@ -185,6 +239,16 @@ public:
 	// [时机5] 棋盘重新洗牌
 	UFUNCTION(BlueprintImplementableEvent, Category = "Match3 Events")
 	void OnBoardReshuffle();
+
+	// ========== 士气值系统事件 ==========
+
+	// [事件] 士气值变化
+	UFUNCTION(BlueprintImplementableEvent, Category = "Morale Events")
+	void OnMoraleChanged(int32 NewMorale, int32 InMaxMorale, int32 AddedAmount);
+
+	// [事件] 技能点变化
+	UFUNCTION(BlueprintImplementableEvent, Category = "Morale Events")
+	void OnSkillPointChanged(int32 NewSkillPoints, int32 InMaxSkillPoints);
 
 private:
 	// 尝试交换两个方块
@@ -214,6 +278,12 @@ private:
 	// 收集特殊效果
 	TArray<FSpecialEffectData> CollectSpecialEffects(const TArray<int32>& ClearedIndices);
 	
+	// 计算士气值奖励
+	int32 CalculateMoraleReward(int32 TileCount, const TArray<FSpecialEffectData>& TriggeredEffects);
+
+	// 检查并转换士气值为技能点
+	void CheckMoraleToSkillPoint();
+
 	// 生成棋盘
 	void GenerateBoard();
 	

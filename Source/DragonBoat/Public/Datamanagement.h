@@ -156,6 +156,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Morale System")
 	int32 MaxSkillPoints;
 
+	// ========== 龙舟竞速效果配置 ==========
+
+	// 加速效果数值（每次触发的加速量）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Race Effects")
+	float SpeedBoostPerTrigger;
+
+	// 减速效果数值（每次触发的减速量）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Race Effects")
+	float SlowDownPerTrigger;
+
 	// ========== 公共接口 ==========
 
 	// 初始化游戏（生成初始棋盘）
@@ -250,6 +260,20 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Morale Events")
 	void OnSkillPointChanged(int32 NewSkillPoints, int32 InMaxSkillPoints);
 
+	// ========== 龙舟竞速效果事件 ==========
+
+	// [事件] 玩家触发加速效果（给玩家龙舟加速）
+	// TriggerCount: 触发次数（消除了几个特殊格子）
+	// SpeedBoostAmount: 加速数值
+	UFUNCTION(BlueprintImplementableEvent, Category = "Race Events")
+	void OnPlayerSpeedUpTriggered(int32 TriggerCount, float SpeedBoostAmount);
+
+	// [事件] 玩家触发减速效果（给敌方龙舟减速）
+	// TriggerCount: 触发次数
+	// SlowDownAmount: 减速数值
+	UFUNCTION(BlueprintImplementableEvent, Category = "Race Events")
+	void OnPlayerSlowDownEnemyTriggered(int32 TriggerCount, float SlowDownAmount);
+
 private:
 	// 尝试交换两个方块
 	bool TrySwap(int32 IndexA, int32 IndexB);
@@ -289,6 +313,9 @@ private:
 	
 	// 检查是否有可用移动
 	bool HasAnyValidMove();
+
+	// 触发龙舟竞速效果（内部使用）
+	void TriggerRaceEffects(const TArray<FSpecialEffectData>& TriggeredEffects);
 	
 	// 待交换的索引
 	int32 PendingSwapIndexA;

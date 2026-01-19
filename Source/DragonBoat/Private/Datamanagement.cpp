@@ -17,6 +17,10 @@ ADatamanagement::ADatamanagement()
 	SpecialMoraleBonus = 20;
 	SkillPoints = 0;
 	MaxSkillPoints = 3;
+
+	// 龙舟竞速效果初始化
+	SpeedBoostPerTrigger = 50.0f;
+	SlowDownPerTrigger = 30.0f;
 }
 
 void ADatamanagement::BeginPlay()
@@ -135,7 +139,7 @@ void ADatamanagement::ProcessMatchCheck()
 
 	TSet<int32> MatchedIndices;
 
-	// 检查横向匹配
+	// 横向匹配
 	for (int32 Row = 0; Row < GridSize; ++Row)
 	{
 		for (int32 Col = 0; Col < GridSize - 2; ++Col)
@@ -150,7 +154,7 @@ void ADatamanagement::ProcessMatchCheck()
 				MatchedIndices.Add(Idx + 1);
 				MatchedIndices.Add(Idx + 2);
 				
-				// 检查是否超过3个（4连、5连）
+				// 检查是否超过3连（4连、5连）
 				int32 NextCol = Col + 3;
 				while (NextCol < GridSize && OrbGrid[Row * GridSize + NextCol] == Color)
 				{
@@ -161,7 +165,7 @@ void ADatamanagement::ProcessMatchCheck()
 		}
 	}
 
-	// 检查纵向匹配
+	// 纵向匹配
 	for (int32 Col = 0; Col < GridSize; ++Col)
 	{
 		for (int32 Row = 0; Row < GridSize - 2; ++Row)
@@ -176,7 +180,7 @@ void ADatamanagement::ProcessMatchCheck()
 				MatchedIndices.Add(Idx + GridSize);
 				MatchedIndices.Add(Idx + GridSize * 2);
 
-				// 检查是否超过3个
+				// 检查是否超过3连
 				int32 NextRow = Row + 3;
 				while (NextRow < GridSize && OrbGrid[NextRow * GridSize + Col] == Color)
 				{
@@ -192,7 +196,7 @@ void ADatamanagement::ProcessMatchCheck()
 		TArray<int32> ClearedArray = MatchedIndices.Array();
 		GameState = EMatch3State::Clearing;
 		
-		UE_LOG(LogTemp, Log, TEXT("  -> Found %d matches! State -> Clearing"), ClearedArray.Num());
+		UE_LOG(LogTemp, Log, TEXT("-> Found %d matches! State -> Clearing"), ClearedArray.Num());
 		
 		// 收集触发的特殊效果
 		TArray<FSpecialEffectData> TriggeredEffects = CollectSpecialEffects(ClearedArray);
@@ -203,6 +207,9 @@ void ADatamanagement::ProcessMatchCheck()
 		{
 			AddMorale(MoraleReward);
 		}
+
+		// 触发龙舟竞速效果
+		TriggerRaceEffects(TriggeredEffects);
 
 		// 清空匹配的方块
 		for (int32 Idx : ClearedArray)
@@ -224,12 +231,12 @@ void ADatamanagement::ProcessMatchCheck()
 		{
 			UE_LOG(LogTemp, Warning, TEXT("  -> DEADLOCK detected! Reshuffling board..."));
 			
-			// 重新生成棋盘（保持特殊格子位置不变）
+			// 重新生成棋盘（特殊格子位置不变）
 			GenerateBoard();
 			
 			UE_LOG(LogTemp, Log, TEXT("  -> Triggering OnBoardReshuffle"));
 			
-			// [时机5] 通知UI播放洗牌动画
+			// [时机5] 通知UI棋盘洗牌动画
 			OnBoardReshuffle();
 		}
 		
@@ -294,28 +301,163 @@ void ADatamanagement::GenerateBoard()
 
 	while (!bIsValidBoard && RetryCount < MaxRetries)
 	{
-		// 1. 随机生成（不覆盖特殊格子配置）
+		// 1. 随机生成棋盘
 		for (int32 i = 0; i < OrbGrid.Num(); i++)
 		{
 			int32 ColorInt = FMath::RandRange(0, 3);
 			OrbGrid[i] = static_cast<ETileColor>(ColorInt);
 		}
 
-		// 2. 检查是否有初始匹配（不允许）
-		if (HasMatch())
+		// 2. 消除所有初始匹配（逐个方块检查并替换）
+		bool bHadMatches = true;
+		int32 FixAttempts = 0;
+		const int32 MaxFixAttempts = 200;
+		
+		while (bHadMatches && FixAttempts < MaxFixAttempts)
 		{
+			bHadMatches = false;
+			FixAttempts++;
+			
+			// 遍历每个格子，检查是否形成匹配
+			for (int32 Row = 0; Row < GridSize; ++Row)
+			{
+				for (int32 Col = 0; Col < GridSize; ++Col)
+				{
+					int32 Idx = Row * GridSize + Col;
+					ETileColor CurrentColor = OrbGrid[Idx];
+					
+					if (CurrentColor == ETileColor::Empty)
+						continue;
+					
+					bool bIsInMatch = false;
+					
+					// 检查横向匹配（当前格子是否是横向3连的一部分）
+					if (Col >= 2)
+					{
+						// 检查左侧两个
+						if (OrbGrid[Idx - 1] == CurrentColor && OrbGrid[Idx - 2] == CurrentColor)
+						{
+							bIsInMatch = true;
+						}
+					}
+					if (Col >= 1 && Col < GridSize - 1)
+					{
+						// 检查左右各一个
+						if (OrbGrid[Idx - 1] == CurrentColor && OrbGrid[Idx + 1] == CurrentColor)
+						{
+							bIsInMatch = true;
+						}
+					}
+					if (Col < GridSize - 2)
+					{
+						// 检查右侧两个
+						if (OrbGrid[Idx + 1] == CurrentColor && OrbGrid[Idx + 2] == CurrentColor)
+						{
+							bIsInMatch = true;
+						}
+					}
+					
+					// 检查纵向匹配
+					if (Row >= 2)
+					{
+						// 检查上方两个
+						if (OrbGrid[Idx - GridSize] == CurrentColor && OrbGrid[Idx - GridSize * 2] == CurrentColor)
+						{
+							bIsInMatch = true;
+						}
+					}
+					if (Row >= 1 && Row < GridSize - 1)
+					{
+						// 检查上下各一个
+						if (OrbGrid[Idx - GridSize] == CurrentColor && OrbGrid[Idx + GridSize] == CurrentColor)
+						{
+							bIsInMatch = true;
+						}
+					}
+					if (Row < GridSize - 2)
+					{
+						// 检查下方两个
+						if (OrbGrid[Idx + GridSize] == CurrentColor && OrbGrid[Idx + GridSize * 2] == CurrentColor)
+						{
+							bIsInMatch = true;
+						}
+					}
+					
+					// 如果发现匹配，替换为不会形成匹配的颜色
+					if (bIsInMatch)
+					{
+						bHadMatches = true;
+						
+						// 尝试所有可能的颜色，找一个不会形成匹配的
+						TArray<ETileColor> AvailableColors = {
+							ETileColor::Red,
+							ETileColor::Blue,
+							ETileColor::Green,
+							ETileColor::Yellow
+						};
+						
+						// 移除当前颜色
+						AvailableColors.Remove(CurrentColor);
+						
+						// 移除左侧相邻的颜色（如果连续2个）
+						if (Col >= 2 && OrbGrid[Idx - 1] == OrbGrid[Idx - 2])
+						{
+							AvailableColors.Remove(OrbGrid[Idx - 1]);
+						}
+						
+						// 移除上方相邻的颜色（如果连续2个）
+						if (Row >= 2 && OrbGrid[Idx - GridSize] == OrbGrid[Idx - GridSize * 2])
+						{
+							AvailableColors.Remove(OrbGrid[Idx - GridSize]);
+						}
+						
+						// 随机选择一个安全的颜色
+						if (AvailableColors.Num() > 0)
+						{
+							int32 RandomIndex = FMath::RandRange(0, AvailableColors.Num() - 1);
+							OrbGrid[Idx] = AvailableColors[RandomIndex];
+						}
+						else
+						{
+							// 极端情况：所有颜色都会形成匹配，随机选一个
+							int32 ColorInt = FMath::RandRange(0, 3);
+							OrbGrid[Idx] = static_cast<ETileColor>(ColorInt);
+						}
+					}
+				}
+			}
+		}
+		
+		if (FixAttempts >= MaxFixAttempts)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("GenerateBoard: Failed to fix initial matches after %d attempts, retrying..."), MaxFixAttempts);
 			RetryCount++;
 			continue;
 		}
 
-		// 3. 检查是否有解
+		// 3. 最终验证：确保没有匹配
+		if (HasMatch())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("GenerateBoard: Board still has matches after fixing, retrying..."));
+			RetryCount++;
+			continue;
+		}
+
+		// 4. 检查是否有可用移动
 		if (!HasAnyValidMove())
 		{
+			UE_LOG(LogTemp, Warning, TEXT("GenerateBoard: Board has no valid moves, retrying..."));
 			RetryCount++;
 			continue;
 		}
 		
 		bIsValidBoard = true;
+		UE_LOG(LogTemp, Log, TEXT("GenerateBoard: Successfully generated valid board (Retries: %d, FixAttempts: %d)"), RetryCount, FixAttempts);
+	}
+	
+	if (RetryCount >= MaxRetries)
+	{
+		UE_LOG(LogTemp, Error, TEXT("GenerateBoard: Failed to generate valid board after %d retries!"), MaxRetries);
 	}
 }
 
@@ -706,5 +848,29 @@ void ADatamanagement::Debug_SimulateMatch(int32 TileCount, bool bIncludeSpecialB
 
 	// 添加士气值
 	AddMorale(MoraleReward);
+}
+
+// ========================================
+// 龙舟竞速效果系统
+// ========================================
+
+void ADatamanagement::TriggerRaceEffects(const TArray<FSpecialEffectData>& TriggeredEffects)
+{
+	for (const FSpecialEffectData& Effect : TriggeredEffects)
+	{
+		int32 TriggerCount = Effect.TriggerIndices.Num();
+
+		if (Effect.EffectType == ESlotEffectType::SpeedUpSelf)
+		{
+			UE_LOG(LogTemp, Log, TEXT("  -> Player SpeedUp triggered %d times"), TriggerCount);
+			OnPlayerSpeedUpTriggered(TriggerCount, SpeedBoostPerTrigger);
+		}
+		else if (Effect.EffectType == ESlotEffectType::SlowDownEnemy)
+		{
+			UE_LOG(LogTemp, Log, TEXT("  -> Player SlowDown Enemy triggered %d times"), TriggerCount);
+			OnPlayerSlowDownEnemyTriggered(TriggerCount, SlowDownPerTrigger);
+		}
+		// MoraleBoost已经在CalculateMoraleReward中处理，这里不需要额外操作
+	}
 }
 

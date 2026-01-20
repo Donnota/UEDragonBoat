@@ -24,7 +24,7 @@ ADatamanagement::ADatamanagement()
 
 	// 技能系统初始化（默认装备2个技能）
 	EquippedSkills.SetNum(2);
-	EquippedSkills[0] = ESkillType::EastWind;     // 槽位1：巧借东风
+	EquippedSkills[0] = ESkillType::EastWind; // 槽位1：巧借东风
 	EquippedSkills[1] = ESkillType::FloodSeven;   // 槽位2：水淹七军
 
 	// 初始化技能配置
@@ -40,15 +40,15 @@ ADatamanagement::ADatamanagement()
 
 	FSkillConfig FogConfig;
 	FogConfig.Duration = 5.0f;
-	FogConfig.EffectValue = 0.5f;  // 遮挡透明度
+	FogConfig.EffectValue = 0.5f;  // 雾的透明度
 	SkillConfigs.Add(ESkillType::HeavyFog, FogConfig);
 
 	FSkillConfig ChainConfig;
 	ChainConfig.Duration = 6.0f;
-	ChainConfig.EffectValue = 4.0f;  // 锁定格子数
+	ChainConfig.EffectValue = 4.0f;  // 锁定格子数量
 	SkillConfigs.Add(ESkillType::IronChain, ChainConfig);
 
-	// 新增：空城计配置
+	// 空城计配置
 	FSkillConfig EmptyCityConfig;
 	EmptyCityConfig.Duration = 8.0f;   // 免疫持续时间
 	EmptyCityConfig.EffectValue = 0.0f;
@@ -59,10 +59,19 @@ ADatamanagement::ADatamanagement()
 	AISkillIntervalMin = 10.0f;  // 最小10秒
 	AISkillIntervalMax = 20.0f;  // 最大20秒
 
-	// AI可释放的技能（只包括攻击性技能）
-	AIAvailableSkills.Add(ESkillType::FloodSeven);  // 水淹七军
-	AIAvailableSkills.Add(ESkillType::HeavyFog);    // 大雾
-	AIAvailableSkills.Add(ESkillType::IronChain);   // 铁索连环
+	// AI可以释放所有技能（模拟真实玩家行为）
+	AIAvailableSkills.Add(ESkillType::EastWind);    // 巧借东风（增益）
+	AIAvailableSkills.Add(ESkillType::FloodSeven);  // 水淹七军（减益）
+	AIAvailableSkills.Add(ESkillType::HeavyFog);    // 大雾（减益）
+	AIAvailableSkills.Add(ESkillType::IronChain);   // 铁索连环（减益）
+	AIAvailableSkills.Add(ESkillType::EmptyCity);   // 空城计（增益/防御）
+
+	// 初始化技能目标类型映射
+	SkillTargetTypeMap.Add(ESkillType::EastWind, ESkillTargetType::Self);      // 增益：给自己加速
+	SkillTargetTypeMap.Add(ESkillType::FloodSeven, ESkillTargetType::Enemy); // 减益：攻击敌人
+	SkillTargetTypeMap.Add(ESkillType::HeavyFog, ESkillTargetType::Enemy);     // 减益：攻击敌人
+	SkillTargetTypeMap.Add(ESkillType::IronChain, ESkillTargetType::Enemy);    // 减益：攻击敌人
+	SkillTargetTypeMap.Add(ESkillType::EmptyCity, ESkillTargetType::Self);     // 增益：保护自己
 }
 
 void ADatamanagement::BeginPlay()
@@ -985,7 +994,7 @@ ESkillType ADatamanagement::GetEquippedSkill(int32 SlotIndex) const
 }
 
 // ========================================
-// AI技能系统（Demo用）
+// AI技能系统
 // ========================================
 
 void ADatamanagement::TriggerAISkill()
@@ -997,6 +1006,9 @@ void ADatamanagement::TriggerAISkill()
 		ScheduleNextAISkill();  // 继续调度下一次
 		return;
 	}
+
+	// 随机选择一个施法AI（AI1 或 AI2）
+	EAIBoatIndex CasterAI = (FMath::RandBool()) ? EAIBoatIndex::AI1 : EAIBoatIndex::AI2;
 
 	// 随机选择一个技能
 	int32 RandomIndex = FMath::RandRange(0, AIAvailableSkills.Num() - 1);
@@ -1011,11 +1023,50 @@ void ADatamanagement::TriggerAISkill()
 		return;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("TriggerAISkill: AI casts %d against player! Duration=%.2f, EffectValue=%.2f"), 
-		(int32)SelectedSkill, Config->Duration, Config->EffectValue);
+	// 获取技能目标类型
+	ESkillTargetType TargetType = GetSkillTargetType(SelectedSkill);
+
+	// 确定目标
+	EAIBoatIndex TargetAI = EAIBoatIndex::AI1;  // 默认值
+	bool bTargetIsPlayer = false;
+
+	if (TargetType == ESkillTargetType::Self)
+	{
+		// 增益技能：施加给自己
+		TargetAI = CasterAI;
+		bTargetIsPlayer = false;
+
+		UE_LOG(LogTemp, Log, TEXT("TriggerAISkill: %s casts %d (BUFF) on SELF! Duration=%.2f"),
+			(CasterAI == EAIBoatIndex::AI1) ? TEXT("AI1") : TEXT("AI2"),
+			(int32)SelectedSkill, Config->Duration);
+	}
+	else
+	{
+		// 减益技能：随机选择敌人（玩家或另一个AI）
+		// 50% 概率攻击玩家，50% 概率攻击另一个AI
+		bTargetIsPlayer = FMath::RandBool();
+
+		if (bTargetIsPlayer)
+		{
+			UE_LOG(LogTemp, Log, TEXT("TriggerAISkill: %s casts %d (DEBUFF) on PLAYER! Duration=%.2f"),
+				(CasterAI == EAIBoatIndex::AI1) ? TEXT("AI1") : TEXT("AI2"),
+				(int32)SelectedSkill, Config->Duration);
+		}
+		else
+		{
+			// 攻击另一个AI
+			TargetAI = (CasterAI == EAIBoatIndex::AI1) ? EAIBoatIndex::AI2 : EAIBoatIndex::AI1;
+
+			UE_LOG(LogTemp, Log, TEXT("TriggerAISkill: %s casts %d (DEBUFF) on %s! Duration=%.2f"),
+				(CasterAI == EAIBoatIndex::AI1) ? TEXT("AI1") : TEXT("AI2"),
+				(int32)SelectedSkill,
+				(TargetAI == EAIBoatIndex::AI1) ? TEXT("AI1") : TEXT("AI2"),
+				Config->Duration);
+		}
+	}
 
 	// 触发蓝图事件
-	OnAISkillCasted(SelectedSkill, *Config);
+	OnAISkillCasted(CasterAI, SelectedSkill, TargetType, TargetAI, bTargetIsPlayer, *Config);
 
 	// 调度下一次释放
 	ScheduleNextAISkill();
@@ -1039,5 +1090,19 @@ void ADatamanagement::ScheduleNextAISkill()
 		RandomInterval,
 		false  // 不重复，每次手动调度
 	);
+}
+
+ESkillTargetType ADatamanagement::GetSkillTargetType(ESkillType SkillType) const
+{
+	// 从映射表中查找技能目标类型
+	const ESkillTargetType* TargetTypePtr = SkillTargetTypeMap.Find(SkillType);
+	if (TargetTypePtr)
+	{
+		return *TargetTypePtr;
+	}
+
+	// 默认返回减益技能（攻击敌人）
+	UE_LOG(LogTemp, Warning, TEXT("GetSkillTargetType: Skill %d not found in map, defaulting to Enemy"), (int32)SkillType);
+	return ESkillTargetType::Enemy;
 }
 

@@ -21,12 +21,60 @@ ADatamanagement::ADatamanagement()
 	// 龙舟竞速效果初始化
 	SpeedBoostPerTrigger = 50.0f;
 	SlowDownPerTrigger = 30.0f;
+
+	// 技能系统初始化（默认装备2个技能）
+	EquippedSkills.SetNum(2);
+	EquippedSkills[0] = ESkillType::EastWind;     // 槽位1：巧借东风
+	EquippedSkills[1] = ESkillType::FloodSeven;   // 槽位2：水淹七军
+
+	// 初始化技能配置
+	FSkillConfig EastWindConfig;
+	EastWindConfig.Duration = 8.0f;
+	EastWindConfig.EffectValue = 200.0f;  // 速度加成
+	SkillConfigs.Add(ESkillType::EastWind, EastWindConfig);
+
+	FSkillConfig FloodConfig;
+	FloodConfig.Duration = 3.0f;
+	FloodConfig.EffectValue = 0.0f;
+	SkillConfigs.Add(ESkillType::FloodSeven, FloodConfig);
+
+	FSkillConfig FogConfig;
+	FogConfig.Duration = 5.0f;
+	FogConfig.EffectValue = 0.5f;  // 遮挡透明度
+	SkillConfigs.Add(ESkillType::HeavyFog, FogConfig);
+
+	FSkillConfig ChainConfig;
+	ChainConfig.Duration = 6.0f;
+	ChainConfig.EffectValue = 4.0f;  // 锁定格子数
+	SkillConfigs.Add(ESkillType::IronChain, ChainConfig);
+
+	// 新增：空城计配置
+	FSkillConfig EmptyCityConfig;
+	EmptyCityConfig.Duration = 8.0f;   // 免疫持续时间
+	EmptyCityConfig.EffectValue = 0.0f;
+	SkillConfigs.Add(ESkillType::EmptyCity, EmptyCityConfig);
+
+	// AI技能系统初始化
+	bEnableAISkills = true;  // 默认启用
+	AISkillIntervalMin = 10.0f;  // 最小10秒
+	AISkillIntervalMax = 20.0f;  // 最大20秒
+
+	// AI可释放的技能（只包括攻击性技能）
+	AIAvailableSkills.Add(ESkillType::FloodSeven);  // 水淹七军
+	AIAvailableSkills.Add(ESkillType::HeavyFog);    // 大雾
+	AIAvailableSkills.Add(ESkillType::IronChain);   // 铁索连环
 }
 
 void ADatamanagement::BeginPlay()
 {
 	Super::BeginPlay();
 	InitializeGame();
+
+	// 启动AI技能系统
+	if (bEnableAISkills)
+	{
+		ScheduleNextAISkill();
+	}
 }
 
 void ADatamanagement::Tick(float DeltaTime)
@@ -872,5 +920,124 @@ void ADatamanagement::TriggerRaceEffects(const TArray<FSpecialEffectData>& Trigg
 		}
 		// MoraleBoost已经在CalculateMoraleReward中处理，这里不需要额外操作
 	}
+}
+
+// ========================================
+// 技能系统
+// ========================================
+
+bool ADatamanagement::TryCastSkill(int32 SlotIndex)
+{
+	// 检查槽位有效性
+	if (!EquippedSkills.IsValidIndex(SlotIndex))
+	{
+		UE_LOG(LogTemp, Error, TEXT("TryCastSkill: Invalid slot index %d"), SlotIndex);
+		return false;
+	}
+
+	// 检查技能点
+	if (!IsSkillAvailable(SlotIndex))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("TryCastSkill: Not enough skill points!"));
+		return false;
+	}
+
+	ESkillType SkillType = EquippedSkills[SlotIndex];
+
+	// 获取技能配置
+	FSkillConfig* Config = SkillConfigs.Find(SkillType);
+	if (!Config)
+	{
+		UE_LOG(LogTemp, Error, TEXT("TryCastSkill: Skill config not found for skill type %d!"), (int32)SkillType);
+		return false;
+	}
+
+	// 消耗1个技能点
+	if (!ConsumeSkillPoint(1))
+	{
+		return false;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("TryCastSkill: Success! Slot=%d, Type=%d, Duration=%.2f, EffectValue=%.2f"), 
+		SlotIndex, (int32)SkillType, Config->Duration, Config->EffectValue);
+
+	// 触发蓝图事件
+	OnSkillCasted(SkillType, *Config);
+
+	return true;
+}
+
+bool ADatamanagement::IsSkillAvailable(int32 SlotIndex) const
+{
+	if (!EquippedSkills.IsValidIndex(SlotIndex))
+		return false;
+
+	return SkillPoints >= 1;
+}
+
+ESkillType ADatamanagement::GetEquippedSkill(int32 SlotIndex) const
+{
+	if (EquippedSkills.IsValidIndex(SlotIndex))
+		return EquippedSkills[SlotIndex];
+
+	// 默认返回巧借东风
+	return ESkillType::EastWind;
+}
+
+// ========================================
+// AI技能系统（Demo用）
+// ========================================
+
+void ADatamanagement::TriggerAISkill()
+{
+	// 检查是否有可用技能
+	if (AIAvailableSkills.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("TriggerAISkill: No AI skills available!"));
+		ScheduleNextAISkill();  // 继续调度下一次
+		return;
+	}
+
+	// 随机选择一个技能
+	int32 RandomIndex = FMath::RandRange(0, AIAvailableSkills.Num() - 1);
+	ESkillType SelectedSkill = AIAvailableSkills[RandomIndex];
+
+	// 获取技能配置
+	FSkillConfig* Config = SkillConfigs.Find(SelectedSkill);
+	if (!Config)
+	{
+		UE_LOG(LogTemp, Error, TEXT("TriggerAISkill: Skill config not found for skill type %d!"), (int32)SelectedSkill);
+		ScheduleNextAISkill();
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("TriggerAISkill: AI casts %d against player! Duration=%.2f, EffectValue=%.2f"), 
+		(int32)SelectedSkill, Config->Duration, Config->EffectValue);
+
+	// 触发蓝图事件
+	OnAISkillCasted(SelectedSkill, *Config);
+
+	// 调度下一次释放
+	ScheduleNextAISkill();
+}
+
+void ADatamanagement::ScheduleNextAISkill()
+{
+	if (!bEnableAISkills)
+		return;
+
+	// 随机生成下一次释放的时间间隔
+	float RandomInterval = FMath::RandRange(AISkillIntervalMin, AISkillIntervalMax);
+
+	UE_LOG(LogTemp, Log, TEXT("ScheduleNextAISkill: Next AI skill in %.2f seconds"), RandomInterval);
+
+	// 设置Timer
+	GetWorld()->GetTimerManager().SetTimer(
+		AISkillTimerHandle,
+		this,
+		&ADatamanagement::TriggerAISkill,
+		RandomInterval,
+		false  // 不重复，每次手动调度
+	);
 }
 

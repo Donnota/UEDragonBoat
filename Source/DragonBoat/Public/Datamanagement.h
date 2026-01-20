@@ -39,6 +39,33 @@ enum class EMatch3State : uint8
 	RevertingSwap	UMETA(DisplayName = "Reverting Swap (Anim)")
 };
 
+// 大招技能类型
+UENUM(BlueprintType)
+enum class ESkillType : uint8
+{
+	EastWind		UMETA(DisplayName = "East Wind"),		// 巧借东风
+	FloodSeven		UMETA(DisplayName = "Flood Seven"),		// 水淹七军
+	HeavyFog		UMETA(DisplayName = "Heavy Fog"),		// 大雾
+	IronChain		UMETA(DisplayName = "Iron Chain"),		// 铁索连环
+	EmptyCity		UMETA(DisplayName = "Empty City")		// 空城计
+};
+
+// 技能目标类型（用于AI选择目标）
+UENUM(BlueprintType)
+enum class ESkillTargetType : uint8
+{
+	Self		UMETA(DisplayName = "Self"),		// 增益技能（对自己）
+	Enemy		UMETA(DisplayName = "Enemy")		// 减益技能（对敌人）
+};
+
+// AI龙舟索引（用于区分不同AI）
+UENUM(BlueprintType)
+enum class EAIBoatIndex : uint8
+{
+	AI1		UMETA(DisplayName = "AI Boat 1"),		// AI龙舟1
+	AI2		UMETA(DisplayName = "AI Boat 2")		// AI龙舟2
+};
+
 // 方块下落移动信息
 USTRUCT(BlueprintType)
 struct FFallMove
@@ -88,6 +115,23 @@ struct FSpecialEffectData
 
 	FSpecialEffectData(ESlotEffectType InType, const TArray<int32>& InIndices)
 		: EffectType(InType), TriggerIndices(InIndices)
+	{}
+};
+
+// 技能配置数据
+USTRUCT(BlueprintType)
+struct FSkillConfig
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skill")
+	float Duration;  // 持续时间（秒）
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skill")
+	float EffectValue;  // 效果数值
+
+	FSkillConfig()
+		: Duration(5.0f), EffectValue(100.0f)
 	{}
 };
 
@@ -166,6 +210,38 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Race Effects")
 	float SlowDownPerTrigger;
 
+	// ========== 技能系统 ==========
+
+	// 玩家装备的技能（2个槽位）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skill System")
+	TArray<ESkillType> EquippedSkills;
+
+	// 技能配置表
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skill System")
+	TMap<ESkillType, FSkillConfig> SkillConfigs;
+
+	// ========== AI技能系统 ==========
+
+	// AI是否启用自动释放技能
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Skill System")
+	bool bEnableAISkills;
+
+	// AI释放技能的最小间隔（秒）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Skill System")
+	float AISkillIntervalMin;
+
+	// AI释放技能的最大间隔（秒）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Skill System")
+	float AISkillIntervalMax;
+
+	// AI可释放的技能列表（包含所有技能类型）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Skill System")
+	TArray<ESkillType> AIAvailableSkills;
+
+	// AI技能目标类型映射（用于判断技能是增益还是减益）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Skill System")
+	TMap<ESkillType, ESkillTargetType> SkillTargetTypeMap;
+
 	// ========== 公共接口 ==========
 
 	// 初始化游戏（生成初始棋盘）
@@ -211,6 +287,20 @@ public:
 	// 消耗技能点
 	UFUNCTION(BlueprintCallable, Category = "Morale System")
 	bool ConsumeSkillPoint(int32 Amount = 1);
+
+	// ========== 技能系统接口 ==========
+
+	// UI调用：释放指定槽位的技能（SlotIndex: 0 或 1）
+	UFUNCTION(BlueprintCallable, Category = "Skill System")
+	bool TryCastSkill(int32 SlotIndex);
+
+	// 检查指定槽位的技能是否可用
+	UFUNCTION(BlueprintPure, Category = "Skill System")
+	bool IsSkillAvailable(int32 SlotIndex) const;
+
+	// 获取指定槽位装备的技能类型
+	UFUNCTION(BlueprintPure, Category = "Skill System")
+	ESkillType GetEquippedSkill(int32 SlotIndex) const;
 
 	// ========== 测试函数（仅用于调试）==========
 
@@ -274,6 +364,22 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Race Events")
 	void OnPlayerSlowDownEnemyTriggered(int32 TriggerCount, float SlowDownAmount);
 
+	// ========== 技能系统事件 ==========
+
+	// [事件] 玩家技能释放成功
+	UFUNCTION(BlueprintImplementableEvent, Category = "Skill Events")
+	void OnSkillCasted(ESkillType SkillType, const FSkillConfig& Config);
+
+	// [事件] AI释放技能
+	// CasterAI: 施法的AI（AI1或AI2）
+	// SkillType: 技能类型
+	// TargetType: 目标类型（Self=增益给自己, Enemy=减益给敌人）
+	// TargetAI: 如果是减益技能，目标AI是谁（AI1或AI2，如果目标是玩家则此参数无效）
+	// bTargetIsPlayer: 如果是减益技能，目标是否是玩家（true=玩家, false=另一个AI）
+	UFUNCTION(BlueprintImplementableEvent, Category = "Skill Events")
+	void OnAISkillCasted(EAIBoatIndex CasterAI, ESkillType SkillType, ESkillTargetType TargetType, 
+		EAIBoatIndex TargetAI, bool bTargetIsPlayer, const FSkillConfig& Config);
+
 private:
 	// 尝试交换两个方块
 	bool TrySwap(int32 IndexA, int32 IndexB);
@@ -316,9 +422,21 @@ private:
 
 	// 触发龙舟竞速效果（内部使用）
 	void TriggerRaceEffects(const TArray<FSpecialEffectData>& TriggeredEffects);
+
+	// AI技能释放Timer
+	void TriggerAISkill();
+
+	// 调度下一次AI技能释放
+	void ScheduleNextAISkill();
+
+	// 获取技能的目标类型
+	ESkillTargetType GetSkillTargetType(ESkillType SkillType) const;
 	
 	// 待交换的索引
 	int32 PendingSwapIndexA;
 	int32 PendingSwapIndexB;
+
+	// AI技能Timer句柄
+	FTimerHandle AISkillTimerHandle;
 };
 

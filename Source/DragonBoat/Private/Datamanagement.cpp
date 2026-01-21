@@ -993,6 +993,19 @@ ESkillType ADatamanagement::GetEquippedSkill(int32 SlotIndex) const
 	return ESkillType::EastWind;
 }
 
+void ADatamanagement::SetEquippedSkill(int32 SlotIndex, ESkillType NewSkill)
+{
+	if (EquippedSkills.IsValidIndex(SlotIndex))
+	{
+		EquippedSkills[SlotIndex] = NewSkill;
+		UE_LOG(LogTemp, Log, TEXT("SetEquippedSkill: 槽位 %d 更新为技能 %d"), SlotIndex, (int32)NewSkill);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SetEquippedSkill: 无效的槽位索引 %d (当前技能槽数量: %d)"), SlotIndex, EquippedSkills.Num());
+	}
+}
+
 // ========================================
 // AI技能系统
 // ========================================

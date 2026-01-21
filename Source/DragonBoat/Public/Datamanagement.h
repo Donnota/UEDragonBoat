@@ -302,6 +302,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Skill System")
 	ESkillType GetEquippedSkill(int32 SlotIndex) const;
 
+	// UI调用：设置指定槽位的技能
+	UFUNCTION(BlueprintCallable, Category = "Skill System")
+	void SetEquippedSkill(int32 SlotIndex, ESkillType NewSkill);
+
 	// ========== 测试函数（仅用于调试）==========
 
 	// 测试：直接设置士气值

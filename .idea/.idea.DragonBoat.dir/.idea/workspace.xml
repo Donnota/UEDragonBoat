@@ -18,6 +18,7 @@
   </component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://D:/UE5/UE_5.4/Engine/Source/Runtime/Engine/Private/GameplayStatics.cpp" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://D:/UE5/UE_5.4/Engine/Source/Runtime/UMG/Private/Components/Widget.cpp" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://D:/UE5/UE_5.4/Engine/Source/Runtime/UMG/Public/Blueprint/UserWidget.h" root0="FORCE_HIGHLIGHTING" />
   </component>
   <component name="ProjectColorInfo">{
@@ -173,6 +174,8 @@
       <workItem from="1768990202036" duration="154000" />
       <workItem from="1769058910252" duration="1536000" />
       <workItem from="1769080768893" duration="10000" />
+      <workItem from="1769090663333" duration="21000" />
+      <workItem from="1769098651261" duration="593000" />
     </task>
     <servers />
   </component>
